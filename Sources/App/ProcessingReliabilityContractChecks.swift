@@ -25,8 +25,7 @@ enum ProcessingReliabilityContractChecks {
 					}
 					return TranscriptionResult(transcript: "Finished the native background fixture", modelName: "Fixture")
 				}
-			}, reflect: { _, _ in ReflectionResult(headline: "Background fixture completed", modelName: "Fixture") },
-			tasks: { _, _ in TaskExtractionResult(tasks: [], modelName: "Fixture") })
+			}, reflect: { _, _ in ReflectionResult(headline: "Background fixture completed", modelName: "Fixture") })
 			let store = JournalStore(storageRootURL: root, processingServices: services, processingBackgroundTasks: background)
 			try await store.waitUntilLoaded()
 			await store.waitForConfigurationWritesForContract()
@@ -110,9 +109,10 @@ enum ProcessingReliabilityContractChecks {
 			throw Failure("A pre-restart attempt cannot commit")
 		} catch RepositoryError.staleProcessing {}
 		let advanced = try await repository.commitReflection(ReflectionResult(headline: "Saved", modelName: "Fixture"), lease: restarted.lease)
-		try expect(advanced.processing?.stage == .tasks && advanced.processing?.failedAttempts == 0, "Advancing starts a fresh stage budget")
-		let tasks = try await requireWork(repository)
-		let unavailable = try await repository.failProcessing(tasks.lease, message: "No model", kind: .unavailable)
+		try expect(advanced.processing?.status == .complete && advanced.processing?.failedAttempts == 0, "Completing the last stage clears its budget")
+		_ = try await repository.requestProcessing(id: entry.id)
+		let next = try await requireWork(repository)
+		let unavailable = try await repository.failProcessing(next.lease, message: "No model", kind: .unavailable)
 		try expect(unavailable.processing?.retryAfter == nil, "Unavailable services wait for explicit retry")
 		_ = try await repository.retryProcessing(id: entry.id)
 		let unreadableWork = try await requireWork(repository)
@@ -142,8 +142,7 @@ enum ProcessingReliabilityContractChecks {
 		let native = NativeProbe()
 		let services = ProcessingServices(transcribe: { _, _, _, _ in
 			try await ServiceAdmission.speech.run(timeout: .seconds(2)) { try await native.run() }
-		}, reflect: { _, _ in ReflectionResult(headline: "Finished", modelName: "Fixture") },
-			tasks: { _, _ in TaskExtractionResult(tasks: [], modelName: "Fixture") })
+		}, reflect: { _, _ in ReflectionResult(headline: "Finished", modelName: "Fixture") })
 		let store = JournalStore(storageRootURL: root, processingServices: services)
 		try await store.waitUntilLoaded()
 		await store.waitForConfigurationWritesForContract()
@@ -204,8 +203,7 @@ enum ProcessingReliabilityContractChecks {
 		let occupied = Task { try await ServiceAdmission.speech.run { try await blocker.run() } }
 		let services = ProcessingServices(transcribe: { _, _, _, _ in
 			try await ServiceAdmission.speech.run(timeout: .seconds(5)) { try await native.run() }
-		}, reflect: { _, _ in ReflectionResult(headline: "Retried successfully", modelName: "Fixture") },
-			tasks: { _, _ in TaskExtractionResult(tasks: [], modelName: "Fixture") })
+		}, reflect: { _, _ in ReflectionResult(headline: "Retried successfully", modelName: "Fixture") })
 		let store = JournalStore(storageRootURL: root, processingServices: services)
 		do {
 			try await wait { await blocker.starts == 1 }
@@ -317,8 +315,7 @@ enum ProcessingReliabilityContractChecks {
 		let background = ProcessingBackgroundTasks(operations: probe.operations)
 		let services = ProcessingServices(transcribe: { _, _, _, _ in
 			try await ServiceAdmission.speech.run { try await native.run() }
-		}, reflect: { _, _ in ReflectionResult(headline: "Finished in background", modelName: "Fixture") },
-			tasks: { _, _ in TaskExtractionResult(tasks: [], modelName: "Fixture") })
+		}, reflect: { _, _ in ReflectionResult(headline: "Finished in background", modelName: "Fixture") })
 		let store = JournalStore(storageRootURL: root, processingServices: services, processingBackgroundTasks: background)
 		try await store.waitUntilLoaded()
 		await store.waitForConfigurationWritesForContract()
@@ -347,7 +344,7 @@ enum ProcessingReliabilityContractChecks {
 			try await wait { store.processingStates[entry.id]?.status == .complete && probe.completions == [false, true] }
 			try expect(store.entry(id: entry.id)?.transcript == "Recovered without reopening" && probe.continued.count == 1,
 				"Recovery must run the unfinished pipeline without requesting foreground execution")
-			try expect(probe.progress.contains { $0.0 == 4 && $0.1 == 4 }, "Progress reaches completion only after all stages commit")
+			try expect(probe.progress.contains { $0.0 == 3 && $0.1 == 3 }, "Progress reaches completion only after all stages commit")
 			let loaded = try await JournalRepository(rootURL: root).load()
 			try expect(loaded.records.first?.processing?.status == .complete, "Background completion must survive relaunch")
 			try expect(await native.maximumActive == 1, "Foreground and background grants cannot create overlapping workers")

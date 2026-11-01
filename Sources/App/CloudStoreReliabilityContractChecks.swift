@@ -136,8 +136,7 @@ enum CloudStoreReliabilityContractChecks {
 		let services = ProcessingServices(transcribe: { _, preferred, key, _ in
 			await transcription.record(preferred, key)
 			return TranscriptionResult(transcript: "Completed fixture words", modelName: "Fixture")
-		}, reflect: { _, _ in ReflectionResult(headline: "Fixture result", summary: nil, modelName: "Fixture") },
-			tasks: { _, _ in TaskExtractionResult(tasks: [], modelName: "Fixture") })
+		}, reflect: { _, _ in ReflectionResult(headline: "Fixture result", summary: nil, modelName: "Fixture") })
 		let store = JournalStore(storageRootURL: root, processingServices: services,
 			cloudServices: CloudServices(sync: { jobs, _, configuration, references, revision in
 				await provider.sync(jobs, configuration, references, revision)

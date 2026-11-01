@@ -200,7 +200,7 @@ enum ProcessingRepositoryContractChecks {
 		let record = loaded.records.first { $0.id == entry.id }
 		let legacyWork = try await legacy.claimProcessing(now: .distantFuture)
 		try expect(loaded.issues.isEmpty && record?.entry?.transcript == entry.transcript && record?.entry?.tasks.isEmpty == true
-			&& record?.processing?.status == .complete && record?.processing?.completedStages.contains(.tasks) == true
+			&& record?.processing?.status == .complete && record?.processing?.completedStages.contains(.reflect) == true
 			&& record?.taskDelivery == .notExtracted && legacyWork == nil,
 			"A note that finished reminders loads as complete and is not sent to ProcrastiMate")
 		oldJob["status"] = "queued"
@@ -208,8 +208,10 @@ enum ProcessingRepositoryContractChecks {
 		old["processing"] = oldJob
 		try JSONSerialization.data(withJSONObject: old).write(to: manifest)
 		let resumed = JournalRepository(rootURL: root)
-		_ = try await resumed.load()
-		_ = try await claim(resumed, stage: .tasks)
+		let reloaded = try await resumed.load()
+		let queued = try await resumed.claimProcessing(now: .distantFuture)
+		try expect(reloaded.records.first { $0.id == entry.id }?.processing?.status == .complete && queued == nil,
+			"A note queued for the retired reminders stage completes without running it")
 	}
 
 	private static func migrationChecks() async throws {

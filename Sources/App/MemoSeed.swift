@@ -1,14 +1,14 @@
 #if DEBUG
 import Foundation
 
-/// Debug launch keys that create a memo from text instead of the microphone, so the real analysis, task extraction,
+/// Debug launch keys that create a memo from text instead of the microphone, so the real analysis, reminder drafts,
 /// and ProcrastiMate delivery run on a Simulator:
 ///
 ///     -seed-memo "Next time I should bring the slides to the standup."
 ///     -seed-event-title "Standup"        attach the next cached calendar event with this title, or a synthetic one
 ///     -seed-event-start 2026-10-20T09:00:00Z  -seed-event-minutes 30  -seed-event-recurring   (synthetic event only)
-///     -seed-task-drafts '[{"title":"Bring the slides","when":"","link":"next"}]'   stand in for the on-device model;
-///                                         the memo then skips title and summary analysis
+///     -seed-task-drafts '[{"title":"Bring the slides","when":"","link":"next"}]'   stand in for the on-device task
+///                                         model, here and for `-live-transcript` recordings
 @MainActor
 enum MemoSeed {
 	static func run(store: JournalStore) async {
@@ -16,10 +16,18 @@ enum MemoSeed {
 		do {
 			try await store.waitUntilLoaded()
 			if argument("-seed-event-title") != nil { await store.refreshCalendar() }
-			let entry = JournalEntry(createdAt: .now, duration: 0, transcript: transcript, headline: "Seeded memo",
+			var entry = JournalEntry(createdAt: .now, duration: 0, transcript: transcript, headline: "Seeded memo",
 				calendarEvent: event(from: store.calendarSync.events), transcriptModel: "Seeded transcript")
-			// Fixture drafts stand in for a missing model, so analysis is skipped too.
-			try await store.seedMemoForTesting(entry, at: argument("-seed-task-drafts") == nil ? .reflect : .tasks)
+			let calendar = store.calendarSync.events
+			let reminders = if let fixture = fixtureTaskServices(transcript: transcript) {
+				await TaskEngine.extract(transcript: transcript, event: entry.calendarEvent, recordedAt: entry.createdAt,
+					calendar: calendar, modelIsAvailable: { true }, services: fixture)
+			} else {
+				await TaskEngine.extract(transcript: transcript, event: entry.calendarEvent, recordedAt: entry.createdAt, calendar: calendar)
+			}
+			entry.tasks = reminders.tasks
+			entry.taskModel = reminders.tasks.isEmpty ? nil : TaskEngine.modelName
+			try await store.seedMemoForTesting(entry, at: .reflect)
 			print("SEEDED_MEMO \(entry.id.uuidString.lowercased())")
 		} catch {
 			print("SEEDED_MEMO_FAILED \(error.localizedDescription)")

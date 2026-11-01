@@ -68,7 +68,7 @@
     {
       "name": "MemoTaskContractChecks",
       "flag": "-memo-task-contract-tests",
-      "marker": "MEMO TASK CONTRACT: exact evidence and spoken times, event context, passage coverage, TaskEvent resolution, wire JSON, delivery states, outbox, delete prompt, and memo links passed"
+      "marker": "MEMO TASK CONTRACT: exact evidence and spoken times, event context, passage coverage, TaskEvent resolution, wire JSON, reminder drafts, delivery states, outbox, delete prompt, and memo links passed"
     },
     {
       "name": "WeeklyRecordingMetricContractChecks",

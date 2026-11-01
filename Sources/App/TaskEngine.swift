@@ -91,6 +91,8 @@ struct TaskModelServices: Sendable {
 
 enum TaskEngine {
 	static let modelName = "SystemLanguageModel.default · guided tasks"
+	/// Reminders are found while recording, when the shared model lane is suspended for capture priority.
+	static let admission = ServiceAdmission()
 	static var schema: GenerationSchema { GeneratedTaskBatch.generationSchema }
 
 	static let instructions = """
@@ -227,7 +229,7 @@ enum TaskEngine {
 
 	private static func request(_ prompt: String, budget: ModelContextBudget, services: TaskModelServices) async throws -> [TaskDraft] {
 		try await budget.requireFits(prompt)
-		return try await ServiceAdmission.model.run(timeout: .seconds(45)) {
+		return try await admission.run(timeout: .seconds(45)) {
 			try await services.extract(instructions, prompt)
 		}
 	}

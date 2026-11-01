@@ -143,13 +143,18 @@ actor JournalRepository {
 		try write(record)
 	}
 
-	func finishRecording(id: UUID) throws -> JournalEntry {
+	func finishRecording(id: UUID, reminders: [MemoTask] = []) throws -> JournalEntry {
 		try requireLoaded()
 		guard var record = records[id], record.state != .deleted, var entry = record.entry else {
 			throw RepositoryError.unavailableRecord
 		}
 		guard let filename = entry.audioFilename else { throw RepositoryError.invalidAudio }
 		entry.duration = try Self.audioDuration(at: recordingsURL.appendingPathComponent(filename))
+		if !reminders.isEmpty {
+			entry.tasks = reminders
+			entry.taskModel = TaskEngine.modelName
+			record.taskDelivery = .draft
+		}
 		record.entry = entry
 		record.state = .saved
 		if record.processing == nil { record.processing = newProcessing(for: record) }
@@ -306,13 +311,14 @@ actor JournalRepository {
 	}
 
 	#if DEBUG
-	/// A memo with a finished transcript and no audio, queued at `stage`.
+	/// A memo with a finished transcript and no audio, queued at `stage`. Its tasks become reminder drafts.
 	func seed(_ entry: JournalEntry, at stage: ProcessingStage) throws -> JournalRecord {
 		try requireLoaded()
 		var record = JournalRecord(entry: entry)
 		var job = EntryProcessing(inputRevision: 0, stage: stage)
-		job.completedStages = stage == .tasks ? [.transcribe, .reflect] : [.transcribe]
+		job.completedStages = [.transcribe]
 		record.processing = job
+		if !entry.tasks.isEmpty { record.taskDelivery = .draft }
 		try write(record)
 		return records[entry.id]!
 	}
@@ -398,19 +404,25 @@ actor JournalRepository {
 		return records[record.id]!
 	}
 
-	func commitTasks(_ result: TaskExtractionResult, lease: ProcessingLease) throws -> JournalRecord {
-		var record = try currentRecord(for: lease)
-		guard lease.stage == .tasks, result.outcome.isComplete else { throw RepositoryError.staleProcessing }
-		if !record.taskDelivery.locksExtraction {
-			record.entry?.tasks = result.tasks
-			record.entry?.taskModel = result.modelName
-			record.taskDelivery = result.tasks.isEmpty ? .delivered([]) : .pending(retry: nil)
-			record.remoteTasks = nil
-		}
-		advance(&record, after: .tasks)
-		if result.outcome == .skipped { record.processing?.skippedStages.insert(.tasks) }
+	/// Only drafts change; once Save Reminders queues them, ProcrastiMate owns the tasks.
+	func updateDraftReminders(id: UUID, _ change: @Sendable (inout [MemoTask]) -> Void) throws -> JournalRecord? {
+		guard var record = records[id], record.state == .saved, record.taskDelivery == .draft || record.taskDelivery == .notExtracted,
+			var tasks = record.entry?.tasks else { return nil }
+		change(&tasks)
+		guard tasks != record.entry?.tasks else { return nil }
+		record.entry?.tasks = tasks
+		record.entry?.taskModel = tasks.isEmpty ? nil : TaskEngine.modelName
+		record.taskDelivery = tasks.isEmpty ? .notExtracted : .draft
 		try write(record)
-		return records[record.id]!
+		return records[id]
+	}
+
+	func saveReminders(id: UUID) throws -> JournalRecord? {
+		guard var record = records[id], record.state == .saved, record.taskDelivery == .draft,
+			record.entry?.tasks.isEmpty == false else { return nil }
+		record.taskDelivery = .pending(retry: nil)
+		try write(record)
+		return records[id]
 	}
 
 	func taskDeliveryJobs(repair: Bool = false, now: Date = .now) -> [TaskDeliveryJob] {
@@ -421,16 +433,16 @@ actor JournalRepository {
 				guard repair || retry.map({ $0.isDue(at: now) }) ?? true else { return nil }
 			case .blocked:
 				guard repair else { return nil }
-			case .notExtracted, .delivered:
+			case .notExtracted, .draft, .delivered:
 				return nil
 			}
 			return TaskDeliveryJob(id: record.id, recordedAt: entry.createdAt, tasks: entry.tasks)
 		}.sorted { ($0.recordedAt, $0.id.uuidString) < ($1.recordedAt, $1.id.uuidString) }
 	}
 
-	/// ProcrastiMate now holds what the job sent, so those tasks become the memo's even if a re-extraction replaced them.
+	/// ProcrastiMate now holds what the job sent, so those tasks become the memo's.
 	func acknowledgeTasks(_ job: TaskDeliveryJob, remote: [RemoteMemoTask]) throws -> JournalRecord? {
-		guard var record = records[job.id], record.state == .saved, !record.taskDelivery.locksExtraction else { return nil }
+		guard var record = records[job.id], record.state == .saved, record.taskDelivery.awaitsDelivery else { return nil }
 		let ids = Dictionary(remote.map { ($0.key, $0.id) }, uniquingKeysWith: { first, _ in first })
 		record.entry?.tasks = job.tasks
 		record.taskDelivery = .delivered(job.tasks.map { MemoTaskReceipt(key: $0.key, id: ids[$0.key]) })
@@ -551,8 +563,7 @@ actor JournalRepository {
 		switch stage {
 		case .finalizeAudio: job.stage = .transcribe
 		case .transcribe: job.stage = .reflect
-		case .reflect: job.stage = .tasks
-		case .tasks: job.status = .complete
+		case .reflect: job.status = .complete
 		}
 		record.processing = job
 	}
@@ -568,7 +579,7 @@ actor JournalRepository {
 				if record.processing == nil, let entry = record.entry {
 					var job = newProcessing(for: record)
 					if !["Processing recording", "Recovered recording"].contains(entry.headline), entry.transcript != "No transcript available." {
-						job.completedStages = [.transcribe, .reflect, .tasks]
+						job.completedStages = [.transcribe, .reflect]
 					}
 					if entry.audioFilename == nil {
 						job.status = .complete
@@ -578,7 +589,7 @@ actor JournalRepository {
 					} else if !RecordingAudioFormat.needsFinalization(entry.audioFilename!),
 						!["Processing recording", "Recovered recording"].contains(entry.headline) {
 						job.status = .complete
-						job.completedStages = [.transcribe, .reflect, .tasks]
+						job.completedStages = [.transcribe, .reflect]
 					}
 					record.processing = job
 					try write(record)

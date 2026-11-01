@@ -16,7 +16,7 @@ enum MemoTaskContractChecks {
 			try await outboxChecks()
 			try deletionAndLinkChecks()
 			try presentationChecks()
-			print("MEMO TASK CONTRACT: exact evidence and spoken times, event context, passage coverage, TaskEvent resolution, wire JSON, delivery states, outbox, delete prompt, and memo links passed")
+			print("MEMO TASK CONTRACT: exact evidence and spoken times, event context, passage coverage, TaskEvent resolution, wire JSON, reminder drafts, delivery states, outbox, delete prompt, and memo links passed")
 			fflush(stdout)
 		} catch { fatalError("MEMO TASK CONTRACT: \(error)") }
 	}
@@ -168,11 +168,26 @@ enum MemoTaskContractChecks {
 		let repository = JournalRepository(rootURL: root)
 		_ = try await repository.load()
 		let first = [task("Bring water"), task("Call Maya")]
-		try await extract(first, repository, entry.id)
-		let extracted = await repository.record(id: entry.id)
-		try expect(extracted?.taskDelivery == .pending(retry: nil), "Extracted tasks wait in the outbox")
+		_ = try await repository.updateDraftReminders(id: entry.id) { $0 = first }
+		let drafted = await repository.record(id: entry.id)
+		let unsent = await repository.taskDeliveryJobs(repair: true)
+		try expect(drafted?.taskDelivery == .draft && unsent.isEmpty, "Reminder drafts are never sent before Save Reminders")
+		_ = try await repository.updateDraftReminders(id: entry.id) { $0[0].title = "Bring a water bottle"; $0.removeLast() }
+		let edited = await repository.record(id: entry.id)
+		try expect(edited?.entry?.tasks.map(\.title) == ["Bring a water bottle"] && edited?.taskDelivery == .draft,
+			"Drafts can be renamed and removed")
+		_ = try await repository.updateDraftReminders(id: entry.id) { $0.removeAll() }
+		let cleared = try await repository.saveReminders(id: entry.id)
+		let emptied = await repository.record(id: entry.id)
+		try expect(cleared == nil && emptied?.taskDelivery == .notExtracted, "Removing every draft leaves nothing to save")
+
+		_ = try await repository.updateDraftReminders(id: entry.id) { $0 = first }
+		let saved = try await repository.saveReminders(id: entry.id)
+		try expect(saved?.taskDelivery == .pending(retry: nil), "Save Reminders queues the drafts for ProcrastiMate")
 		let job = try only(await repository.taskDeliveryJobs(now: now))
-		try expect(job.tasks == first && job.id == entry.id && job.recordedAt == entry.createdAt, "The outbox sends the memo's tasks")
+		try expect(job.tasks == first && job.id == entry.id && job.recordedAt == entry.createdAt, "The outbox sends the memo's reminders")
+		let locked = try await repository.updateDraftReminders(id: entry.id) { $0.removeAll() }
+		try expect(locked == nil, "Saved reminders are no longer drafts")
 
 		let failed = try await repository.failTasks(job, message: "Offline", now: now)
 		guard case let .pending(retry)? = failed?.taskDelivery, retry?.attempts == 1, retry?.retryAfter == now.addingTimeInterval(5) else {
@@ -187,36 +202,19 @@ enum MemoTaskContractChecks {
 		let foreground = await repository.taskDeliveryJobs(repair: true)
 		try expect(timer.isEmpty && foreground.count == 1, "Blocked tasks wait for a foreground check instead of the timer")
 
-		let second = [task("Bring water bottle")]
-		try await extract(second, repository, entry.id)
-		let replaced = await repository.record(id: entry.id)
-		try expect(replaced?.entry?.tasks == second, "Before delivery, reprocessing may extract again")
 		let remote = [RemoteMemoTask(key: first[0].key, id: "t-1", title: "Bring water", completedAt: nil, due: nil, event: nil)]
 		_ = try await repository.acknowledgeTasks(job, remote: remote)
 		let delivered = await repository.record(id: entry.id)
 		try expect(delivered?.entry?.tasks == first && delivered?.taskDelivery == .delivered([.init(key: first[0].key, id: "t-1"),
 			.init(key: first[1].key, id: nil)]) && delivered?.remoteTasks == remote,
 			"What ProcrastiMate accepted becomes the memo's tasks, and a key it skipped keeps no id")
-		try await extract([task("Something new")], repository, entry.id)
-		let kept = await repository.record(id: entry.id)
-		try expect(kept?.entry?.tasks == first && kept?.taskDelivery.locksExtraction == true && kept?.processing?.status == .complete,
-			"After delivery, reprocessing keeps the delivered tasks")
 		let resend = await repository.taskDeliveryJobs(repair: true)
 		try expect(resend.isEmpty, "Delivered memos never resend")
 
-		let other = try seed(root, append: true)
 		let reloaded = JournalRepository(rootURL: root)
 		_ = try await reloaded.load()
 		let relaunched = await reloaded.record(id: entry.id)
-		try expect(relaunched?.taskDelivery == kept?.taskDelivery, "Delivery state survives relaunch")
-		try await extract([], reloaded, other.id)
-		let empty = await reloaded.record(id: other.id)?.taskDelivery
-		try expect(empty == .delivered([]) && empty?.locksExtraction == false, "A memo with no tasks sends nothing and may still extract later")
-		let inFlight = TaskDeliveryJob(id: other.id, recordedAt: other.createdAt, tasks: [task("Sent before re-extraction")])
-		_ = try await reloaded.acknowledgeTasks(inFlight, remote: [])
-		let late = await reloaded.record(id: other.id)
-		try expect(late?.entry?.tasks == inFlight.tasks && late?.taskDelivery.locksExtraction == true,
-			"A PUT that lands after a re-extraction found nothing still records what ProcrastiMate accepted")
+		try expect(relaunched?.taskDelivery == delivered?.taskDelivery, "Delivery state survives relaunch")
 		_ = try await reloaded.delete(id: entry.id)
 		let gone = await reloaded.record(id: entry.id)
 		try expect(gone?.taskDelivery == .notExtracted, "Deleting a memo clears its outbox")
@@ -229,14 +227,16 @@ enum MemoTaskContractChecks {
 		let tasks = [task("Bring water"), task("Call Maya")]
 		let link = LinkProbe()
 		let services = ProcessingServices(transcribe: { _, _, _, _ in TranscriptionResult(transcript: transcript, modelName: "Fixture") },
-			reflect: { _, _ in ReflectionResult(headline: "Fixture", modelName: "Fixture") },
-			tasks: { _, _ in await link.extracted(tasks) })
+			reflect: { _, _ in ReflectionResult(headline: "Fixture", modelName: "Fixture") })
 		let store = JournalStore(storageRootURL: root, processingServices: services, procrastiMate: link.client())
 		try await store.waitUntilLoaded()
 		await store.waitForConfigurationWritesForContract()
 
 		link.status = .unavailable(.notInstalled)
-		store.reprocessEntry(id: entry.id)
+		await store.updateDraftReminders(for: entry.id) { $0 = tasks }
+		await store.waitForTaskDeliveryForContract()
+		try expect(store.taskDeliveries[entry.id] == .draft && link.puts.isEmpty, "Drafts wait for Save Reminders")
+		await store.saveReminders(for: entry.id)
 		try await wait { store.taskDeliveries[entry.id] == .blocked(.notInstalled) }
 		try expect(link.puts.isEmpty, "Nothing is sent while ProcrastiMate is missing")
 
@@ -264,8 +264,8 @@ enum MemoTaskContractChecks {
 		store.reprocessEntry(id: entry.id)
 		try await wait { store.processingStates[entry.id]?.requestID != previousRequest && store.processingStates[entry.id]?.status == .complete }
 		await store.waitForTaskDeliveryForContract()
-		try expect(link.extractions == 1 && link.puts.count == 3 && store.entry(id: entry.id)?.tasks == tasks,
-			"Reprocessing a delivered memo neither extracts nor sends again")
+		try expect(link.puts.count == 3 && store.entry(id: entry.id)?.tasks == tasks,
+			"Reprocessing a delivered memo keeps its tasks and sends nothing again")
 
 		link.list = [RemoteMemoTask(key: tasks[0].key, id: "t-0", title: "Bring water", completedAt: now, due: nil, event: nil)]
 		await store.refreshRemoteTasks(for: entry.id)
@@ -317,14 +317,6 @@ enum MemoTaskContractChecks {
 			"After a fetch the note shows ProcrastiMate's title, done state, and due date")
 	}
 
-	private static func extract(_ tasks: [MemoTask], _ repository: JournalRepository, _ id: UUID) async throws {
-		_ = try await repository.requestProcessing(id: id, startAt: .tasks)
-		guard let work = try await repository.claimProcessing(), work.lease.stage == .tasks else {
-			throw Failure(message: "Expected tasks work")
-		}
-		_ = try await repository.commitTasks(TaskExtractionResult(tasks: tasks, modelName: "Fixture"), lease: work.lease)
-	}
-
 	private static func task(_ title: String) -> MemoTask {
 		MemoTask(key: UUID(), title: title, notes: "Why", when: nil, event: nil)
 	}
@@ -357,12 +349,6 @@ enum MemoTaskContractChecks {
 		var puts: [MemoTasksRequest] = []
 		var list: [RemoteMemoTask] = []
 		var deletions: [UUID] = []
-		var extractions = 0
-
-		func extracted(_ tasks: [MemoTask]) -> TaskExtractionResult {
-			extractions += 1
-			return TaskExtractionResult(tasks: tasks, modelName: "Fixture")
-		}
 
 		func client() -> ProcrastiMateClient {
 			ProcrastiMateClient(status: { [unowned self] in status }, put: { [unowned self] _, request in

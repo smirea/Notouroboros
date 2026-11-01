@@ -392,13 +392,13 @@ final class JournalStore {
 	func waitForPendingWrites() async { await persistenceTask?.value }
 
 	@discardableResult
-	func finishRecording(at url: URL, calendarEvent: JournalCalendarEvent?) async throws -> UUID {
+	func finishRecording(at url: URL, calendarEvent: JournalCalendarEvent?, reminders: [MemoTask] = []) async throws -> UUID {
 		try await waitUntilLoaded()
 		await persistenceTask?.value
 		guard let entryID = UUID(uuidString: url.deletingPathExtension().lastPathComponent) else {
 			throw RepositoryError.unavailableRecord
 		}
-		_ = try await repository.finishRecording(id: entryID)
+		_ = try await repository.finishRecording(id: entryID, reminders: reminders)
 		if let record = await repository.record(id: entryID) { publish(record) }
 		startUserInitiatedProcessing()
 		scheduleICloudDriveMirror()
@@ -541,7 +541,7 @@ final class JournalStore {
 
 	private func serviceActivityChanged(_ active: Bool, lease: ProcessingLease) {
 		guard activeLease == lease, !processingSuspended, activeStage?.isCancelled == false else { return }
-		var perResponse = lease.stage == .reflect || lease.stage == .tasks
+		var perResponse = lease.stage == .reflect
 		#if DEBUG
 		if processingDeadlineOverride != nil { perResponse = false }
 		#endif
@@ -602,18 +602,6 @@ final class JournalStore {
 					return
 				}
 				record = try await repository.commitReflection(result, lease: lease)
-			case .tasks:
-				let result: TaskExtractionResult
-				if committedRecords[entry.id]?.taskDelivery.locksExtraction == true {
-					result = TaskExtractionResult(tasks: [], outcome: .skipped)
-				} else { result = await processingServices.tasks(entry, calendarSync.events) }
-				try Task.checkCancellation()
-				guard result.outcome.isComplete else {
-					try await failModelStage(result.outcome, lease: lease)
-					return
-				}
-				record = try await repository.commitTasks(result, lease: lease)
-				scheduleTaskDelivery()
 			}
 			publish(record)
 			scheduleICloudDriveMirror()
@@ -836,6 +824,24 @@ final class JournalStore {
 
 	func asksAboutTasksOnDeletion(_ entryID: UUID) -> Bool {
 		MemoDeletionPrompt.asksAboutTasks(delivery: taskDeliveries[entryID], remote: remoteTasks[entryID])
+	}
+
+	func updateDraftReminders(for entryID: UUID, _ change: @escaping @Sendable (inout [MemoTask]) -> Void) async {
+		do {
+			if let record = try await repository.updateDraftReminders(id: entryID, change) { publish(record) }
+		} catch {
+			storageErrorMessage = "Reminder changes couldn’t be saved. " + error.localizedDescription
+		}
+	}
+
+	func saveReminders(for entryID: UUID) async {
+		do {
+			guard let record = try await repository.saveReminders(id: entryID) else { return }
+			publish(record)
+			scheduleTaskDelivery()
+		} catch {
+			storageErrorMessage = "Reminders couldn’t be saved. " + error.localizedDescription
+		}
 	}
 
 	func scheduleTaskDelivery(repair: Bool = false) {

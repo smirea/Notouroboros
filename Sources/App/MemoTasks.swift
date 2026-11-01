@@ -84,8 +84,10 @@ enum TaskEventResolver {
 
 /// The memo's outbox state. Device-local: it is not part of the exported note.
 enum MemoTaskDelivery: Codable, Equatable, Sendable {
-	/// The tasks stage has not run, as for notes recorded before tasks existed.
+	/// No reminders were found while recording, or every draft was removed.
 	case notExtracted
+	/// Reminders found while recording, editable until Save Reminders queues them for ProcrastiMate.
+	case draft
 	/// Extracted tasks wait for a `PUT`. `retry` follows the iCloud backoff after a transient failure.
 	case pending(retry: CloudRetryState?)
 	/// Extracted tasks wait for ProcrastiMate to be installed or signed in.
@@ -93,15 +95,10 @@ enum MemoTaskDelivery: Codable, Equatable, Sendable {
 	/// ProcrastiMate accepted the tasks. An empty list means the memo had none to send.
 	case delivered([MemoTaskReceipt])
 
-	/// Once ProcrastiMate holds a memo's tasks, reprocessing keeps them instead of extracting new ones.
-	var locksExtraction: Bool {
-		if case let .delivered(receipts) = self { !receipts.isEmpty } else { false }
-	}
-
 	var awaitsDelivery: Bool {
 		switch self {
 		case .pending, .blocked: true
-		case .notExtracted, .delivered: false
+		case .notExtracted, .draft, .delivered: false
 		}
 	}
 

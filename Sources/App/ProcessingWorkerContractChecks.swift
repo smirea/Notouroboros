@@ -114,8 +114,7 @@ enum ProcessingWorkerContractChecks {
 
 	private static func services(_ probe: Probe) -> ProcessingServices {
 		ProcessingServices(transcribe: { _, _, _, update in try await probe.transcribe(update) },
-			reflect: { transcript, _ in await probe.reflect(transcript) },
-			tasks: { _, _ in TaskExtractionResult(tasks: [], modelName: "Fixture") })
+			reflect: { transcript, _ in await probe.reflect(transcript) })
 	}
 
 	private actor Probe {

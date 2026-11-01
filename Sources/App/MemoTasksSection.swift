@@ -26,8 +26,8 @@ enum MemoTasksPresentation {
 			return tasks.compactMap { task in
 				ids[task.key].map { MemoTaskRow(id: task.key, title: task.title, isDone: false, detail: detail(task), taskID: $0) }
 			}
-		case .pending, .blocked:
-			return tasks.map { MemoTaskRow(id: $0.key, title: $0.title, isDone: false, detail: detail($0), taskID: nil) }
+		case .draft, .pending, .blocked:
+			return tasks.map(row)
 		case .delivered, .notExtracted, nil:
 			return []
 		}
@@ -37,8 +37,12 @@ enum MemoTasksPresentation {
 		switch delivery {
 		case let .blocked(problem): problem.message
 		case let .pending(retry): retry?.message ?? "Saving to ProcrastiMate."
-		case .delivered, .notExtracted, nil: nil
+		case .draft, .delivered, .notExtracted, nil: nil
 		}
+	}
+
+	static func row(_ task: MemoTask) -> MemoTaskRow {
+		MemoTaskRow(id: task.key, title: task.title, isDone: false, detail: detail(task), taskID: nil)
 	}
 
 	private static func detail(_ task: MemoTask) -> String? {
@@ -125,6 +129,43 @@ struct MemoTaskRowView: View {
 		.contentShape(Rectangle())
 		.padding(.vertical, 10)
 		.accessibilityElement(children: .combine)
+	}
+}
+
+/// A reminder draft row: tapping edits its title, swiping left removes it. Only for rows inside a `List`.
+struct ReminderDraftRow: View {
+	let task: MemoTask
+	let onEdit: () -> Void
+	let onRemove: () -> Void
+
+	var body: some View {
+		Button(action: onEdit) { MemoTaskRowView(row: MemoTasksPresentation.row(task)) }
+			.buttonStyle(.plain)
+			.accessibilityHint("Edits this reminder")
+			.swipeActions(edge: .trailing, allowsFullSwipe: true) {
+				Button("Remove", systemImage: "trash", role: .destructive, action: onRemove)
+					.tint(.red)
+			}
+	}
+}
+
+struct ReminderEditor: ViewModifier {
+	@Binding var editing: MemoTask?
+	let onSave: (UUID, String) -> Void
+	@State private var title = ""
+
+	func body(content: Content) -> some View {
+		content
+			.alert("Edit Reminder", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }),
+				presenting: editing) { task in
+				TextField("Reminder", text: $title)
+				Button("Save") {
+					let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+					if !title.isEmpty { onSave(task.key, title) }
+				}
+				Button("Cancel", role: .cancel) {}
+			}
+			.onChange(of: editing) { _, task in title = task?.title ?? "" }
 	}
 }
 

@@ -252,7 +252,6 @@ enum EntryProcessingPhase: Equatable, Sendable {
 	case transcribing
 	case queued
 	case reflecting
-	case tasks
 	case complete
 
 	var title: String {
@@ -265,7 +264,6 @@ enum EntryProcessingPhase: Equatable, Sendable {
 		case .transcribing: "Transcribing"
 		case .queued: "Waiting"
 		case .reflecting: "Analyzing"
-		case .tasks: "Finding tasks"
 		case .complete: "Ready"
 		}
 	}
