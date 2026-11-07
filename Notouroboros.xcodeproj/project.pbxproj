@@ -11,7 +11,6 @@
 		A10000000000000000000001 /* NotouroborosApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* NotouroborosApp.swift */; };
 		A10000000000000000000002 /* JournalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* JournalModels.swift */; };
 		D1F357205DF988A6A87C8C34 /* ProcrastiMateClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C142640586B500598803524D /* ProcrastiMateClient.swift */; };
-		D10524AADC104B75224D284D /* TaskEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C18409F2E84CC60D97BCD1B3 /* TaskEngine.swift */; };
 		D12BF446ED6236E78D225161 /* MemoTasks.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B8102FE453E990626BBF61 /* MemoTasks.swift */; };
 		A10000000000000000000003 /* JournalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* JournalStore.swift */; };
 		A10000000000000000000004 /* ReflectionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* ReflectionEngine.swift */; };
@@ -22,7 +21,6 @@
 		A10000000000000000000009 /* RecordView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* RecordView.swift */; };
 		A1000000000000000000000A /* EntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000A /* EntryView.swift */; };
 		D1ADA28114B4ACEE758AE7E8 /* MemoTasksSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C163FE87A13221296606273C /* MemoTasksSection.swift */; };
-		A1B2C3D4E5F6A7B8C9D0E1F2 /* LiveReminders.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2E1D0C9B8A7F6E5D4C3B2A1 /* LiveReminders.swift */; };
 		A1000000000000000000000B /* ReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000B /* ReviewView.swift */; };
 		A1000000000000000000000C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000C /* SettingsView.swift */; };
 		A1000000000000000000000D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000E /* Assets.xcassets */; };
@@ -114,7 +112,6 @@
 		B10000000000000000000001 /* NotouroborosApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotouroborosApp.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* JournalModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalModels.swift; sourceTree = "<group>"; };
 		C142640586B500598803524D /* ProcrastiMateClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcrastiMateClient.swift; sourceTree = "<group>"; };
-		C18409F2E84CC60D97BCD1B3 /* TaskEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskEngine.swift; sourceTree = "<group>"; };
 		C1B8102FE453E990626BBF61 /* MemoTasks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoTasks.swift; sourceTree = "<group>"; };
 		B10000000000000000000003 /* JournalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalStore.swift; sourceTree = "<group>"; };
 		B10000000000000000000004 /* ReflectionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReflectionEngine.swift; sourceTree = "<group>"; };
@@ -125,7 +122,6 @@
 		B10000000000000000000009 /* RecordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordView.swift; sourceTree = "<group>"; };
 		B1000000000000000000000A /* EntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryView.swift; sourceTree = "<group>"; };
 		C163FE87A13221296606273C /* MemoTasksSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoTasksSection.swift; sourceTree = "<group>"; };
-		F2E1D0C9B8A7F6E5D4C3B2A1 /* LiveReminders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReminders.swift; sourceTree = "<group>"; };
 		B1000000000000000000000B /* ReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewView.swift; sourceTree = "<group>"; };
 		B1000000000000000000000C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B1000000000000000000000D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -226,7 +222,6 @@
 				B10000000000000000000001 /* NotouroborosApp.swift */,
 				B10000000000000000000002 /* JournalModels.swift */,
 				C142640586B500598803524D /* ProcrastiMateClient.swift */,
-				C18409F2E84CC60D97BCD1B3 /* TaskEngine.swift */,
 				C1B8102FE453E990626BBF61 /* MemoTasks.swift */,
 				B10000000000000000000021 /* LocationModels.swift */,
 				B10000000000000000000023 /* LocationContractChecks.swift */,
@@ -286,7 +281,6 @@
 				B10000000000000000000009 /* RecordView.swift */,
 				B1000000000000000000000A /* EntryView.swift */,
 				C163FE87A13221296606273C /* MemoTasksSection.swift */,
-				F2E1D0C9B8A7F6E5D4C3B2A1 /* LiveReminders.swift */,
 				B1000000000000000000000B /* ReviewView.swift */,
 				B1000000000000000000000C /* SettingsView.swift */,
 				B1000000000000000000000F /* RecordingActivityManager.swift */,
@@ -493,7 +487,6 @@
 				A10000000000000000000001 /* NotouroborosApp.swift in Sources */,
 				A10000000000000000000002 /* JournalModels.swift in Sources */,
 				D1F357205DF988A6A87C8C34 /* ProcrastiMateClient.swift in Sources */,
-				D10524AADC104B75224D284D /* TaskEngine.swift in Sources */,
 				D12BF446ED6236E78D225161 /* MemoTasks.swift in Sources */,
 				A10000000000000000000021 /* LocationModels.swift in Sources */,
 				A10000000000000000000023 /* LocationContractChecks.swift in Sources */,
@@ -553,7 +546,6 @@
 				A10000000000000000000009 /* RecordView.swift in Sources */,
 				A1000000000000000000000A /* EntryView.swift in Sources */,
 				D1ADA28114B4ACEE758AE7E8 /* MemoTasksSection.swift in Sources */,
-				A1B2C3D4E5F6A7B8C9D0E1F2 /* LiveReminders.swift in Sources */,
 				A1000000000000000000000B /* ReviewView.swift in Sources */,
 				A1000000000000000000000C /* SettingsView.swift in Sources */,
 				A1000000000000000000000E /* RecordingActivityManager.swift in Sources */,

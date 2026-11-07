@@ -8,6 +8,7 @@ struct JournalRecord: Codable, Sendable {
 		case contentRevision, exportedRevision, cloudRetry, cloudAudioReceipt, cloudDeletionReferences, cloudMetadataReceipt
 		case taskDelivery, remoteTasks
 	}
+	private enum RetiredDelivery: String, CodingKey { case draft }
 	var schemaVersion = 1
 	let id: UUID
 	var entry: JournalEntry?
@@ -49,7 +50,14 @@ struct JournalRecord: Codable, Sendable {
 		cloudMetadataReceipt = try values.decodeIfPresent(CloudMetadataReceipt.self, forKey: .cloudMetadataReceipt)
 		cloudDeletionReferences = try values.decodeIfPresent(Set<String>.self, forKey: .cloudDeletionReferences)
 			?? (state == .deleted ? ownedAudioFilenames.union([id.uuidString]) : [])
-		taskDelivery = try values.decodeIfPresent(MemoTaskDelivery.self, forKey: .taskDelivery) ?? .notExtracted
+		// Reminder drafts were unconfirmed live extraction output, retired with it; such a note keeps no tasks.
+		if (try? values.nestedContainer(keyedBy: RetiredDelivery.self, forKey: .taskDelivery))?.contains(.draft) == true {
+			taskDelivery = .notExtracted
+			entry?.tasks = []
+			entry?.taskModel = nil
+		} else {
+			taskDelivery = try values.decodeIfPresent(MemoTaskDelivery.self, forKey: .taskDelivery) ?? .notExtracted
+		}
 		remoteTasks = try values.decodeIfPresent([RemoteMemoTask].self, forKey: .remoteTasks)
 	}
 }
@@ -143,18 +151,13 @@ actor JournalRepository {
 		try write(record)
 	}
 
-	func finishRecording(id: UUID, reminders: [MemoTask] = []) throws -> JournalEntry {
+	func finishRecording(id: UUID) throws -> JournalEntry {
 		try requireLoaded()
 		guard var record = records[id], record.state != .deleted, var entry = record.entry else {
 			throw RepositoryError.unavailableRecord
 		}
 		guard let filename = entry.audioFilename else { throw RepositoryError.invalidAudio }
 		entry.duration = try Self.audioDuration(at: recordingsURL.appendingPathComponent(filename))
-		if !reminders.isEmpty {
-			entry.tasks = reminders
-			entry.taskModel = TaskEngine.modelName
-			record.taskDelivery = .draft
-		}
 		record.entry = entry
 		record.state = .saved
 		if record.processing == nil { record.processing = newProcessing(for: record) }
@@ -311,14 +314,13 @@ actor JournalRepository {
 	}
 
 	#if DEBUG
-	/// A memo with a finished transcript and no audio, queued at `stage`. Its tasks become reminder drafts.
+	/// A memo with a finished transcript and no audio, queued at `stage`.
 	func seed(_ entry: JournalEntry, at stage: ProcessingStage) throws -> JournalRecord {
 		try requireLoaded()
 		var record = JournalRecord(entry: entry)
 		var job = EntryProcessing(inputRevision: 0, stage: stage)
 		job.completedStages = [.transcribe]
 		record.processing = job
-		if !entry.tasks.isEmpty { record.taskDelivery = .draft }
 		try write(record)
 		return records[entry.id]!
 	}
@@ -404,27 +406,6 @@ actor JournalRepository {
 		return records[record.id]!
 	}
 
-	/// Only drafts change; once Save Reminders queues them, ProcrastiMate owns the tasks.
-	func updateDraftReminders(id: UUID, _ change: @Sendable (inout [MemoTask]) -> Void) throws -> JournalRecord? {
-		guard var record = records[id], record.state == .saved, record.taskDelivery == .draft || record.taskDelivery == .notExtracted,
-			var tasks = record.entry?.tasks else { return nil }
-		change(&tasks)
-		guard tasks != record.entry?.tasks else { return nil }
-		record.entry?.tasks = tasks
-		record.entry?.taskModel = tasks.isEmpty ? nil : TaskEngine.modelName
-		record.taskDelivery = tasks.isEmpty ? .notExtracted : .draft
-		try write(record)
-		return records[id]
-	}
-
-	func saveReminders(id: UUID) throws -> JournalRecord? {
-		guard var record = records[id], record.state == .saved, record.taskDelivery == .draft,
-			record.entry?.tasks.isEmpty == false else { return nil }
-		record.taskDelivery = .pending(retry: nil)
-		try write(record)
-		return records[id]
-	}
-
 	func taskDeliveryJobs(repair: Bool = false, now: Date = .now) -> [TaskDeliveryJob] {
 		records.values.compactMap { record -> TaskDeliveryJob? in
 			guard record.state == .saved, let entry = record.entry, !entry.tasks.isEmpty else { return nil }
@@ -433,7 +414,7 @@ actor JournalRepository {
 				guard repair || retry.map({ $0.isDue(at: now) }) ?? true else { return nil }
 			case .blocked:
 				guard repair else { return nil }
-			case .notExtracted, .draft, .delivered:
+			case .notExtracted, .delivered:
 				return nil
 			}
 			return TaskDeliveryJob(id: record.id, recordedAt: entry.createdAt, tasks: entry.tasks)

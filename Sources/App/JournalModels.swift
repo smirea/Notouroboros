@@ -314,8 +314,9 @@ extension JournalEntry {
 				tasks: [
 					MemoTask(key: UUID(uuidString: "D0000000-0000-4000-8000-000000000001")!, title: "Bring electrolytes",
 						notes: "You faded early on this run.\n\n“Next time I should bring electrolytes.”", when: nil,
-						event: TaskEventResolver.resolve(.every, attached: morningRun, events: [], recordedAt: date(2026, 7, 12, 8, 47),
-							now: date(2026, 7, 12, 8, 47))),
+						event: TaskEvent(id: "demo-morning-run-series", title: morningRun.title, allDay: false, series: true, edge: .before,
+							minutes: 60, occurrences: [.init(start: morningRun.startDate.epochMilliseconds,
+								end: morningRun.endDate.epochMilliseconds, original: morningRun.startDate.epochMilliseconds)])),
 					MemoTask(key: UUID(uuidString: "D0000000-0000-4000-8000-000000000002")!, title: "Ask Maya which dentist she recommended",
 						notes: "You want a dentist recommendation.\n\n“I should also ask Maya tomorrow which dentist she recommended.”",
 						when: "tomorrow", event: nil),
@@ -323,7 +324,7 @@ extension JournalEntry {
 						notes: "They make you easy to spot.\n\n“For morning group runs this month I want to wear the red shorts”",
 						when: "this month", event: nil),
 				],
-				taskModel: TaskEngine.modelName
+				taskModel: "SystemLanguageModel.default · guided tasks"
 			),
 			JournalEntry(
 				createdAt: date(2026, 7, 12, 7, 21),

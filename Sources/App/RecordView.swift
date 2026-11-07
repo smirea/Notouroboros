@@ -13,7 +13,6 @@ struct RecordView: View {
 	@State private var selectedEventKey: String?
 	@State private var selectedDate = Date.now
 	@State private var showsDatePicker = false
-	@State private var editingReminder: MemoTask?
 
 	private var isVisualDemo: Bool {
 		session.isVisualDemo
@@ -280,11 +279,6 @@ struct RecordView: View {
 
 			Spacer()
 
-			if let reminders = session.reminders, !reminders.items.isEmpty {
-				reminderList(reminders)
-					.transition(.opacity)
-			}
-
 			HStack(spacing: 34) {
 				Button(action: togglePause) {
 					Image(systemName: demoIsRecording || recorder.wantsToRecord ? "pause.fill" : "play.fill")
@@ -312,33 +306,6 @@ struct RecordView: View {
 			.padding(.bottom, 63)
 			.offset(x: -52)
 		}
-		.animation(.easeOut(duration: 0.25), value: session.reminders?.items)
-		.modifier(ReminderEditor(editing: $editingReminder) { key, title in session.reminders?.rename(key, to: title) })
-	}
-
-	private func reminderList(_ reminders: LiveReminders) -> some View {
-		List {
-			Section {
-				ForEach(reminders.items) { task in
-					ReminderDraftRow(task: task) { editingReminder = task } onRemove: { reminders.remove(task.key) }
-						.listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
-						.listRowBackground(AppStyle.background)
-						.listRowSeparatorTint(Color.white.opacity(0.14))
-				}
-			} header: {
-				Text("Reminders")
-					.font(.footnote.weight(.semibold))
-					.foregroundStyle(AppStyle.secondary)
-					.textCase(nil)
-					.padding(.leading, 8)
-			}
-		}
-		.listStyle(.plain)
-		.scrollContentBackground(.hidden)
-		.scrollBounceBehavior(.basedOnSize)
-		// A List has no intrinsic height; this estimate keeps a short list from pushing the waveform away.
-		.frame(height: min(280, 40 + CGFloat(reminders.items.count) * 62))
-		.padding(.bottom, 24)
 	}
 
 	private var closeButton: some View {

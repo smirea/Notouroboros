@@ -14,7 +14,6 @@ final class RecordingSession {
 	private(set) var hasStartedRecording = false
 	private(set) var isFinishing = false
 	private(set) var isDiscarding = false
-	private(set) var reminders: LiveReminders?
 	var errorMessage: String?
 	var saveErrorMessage: String?
 	var discardErrorMessage: String?
@@ -71,7 +70,6 @@ final class RecordingSession {
 		errorMessage = nil
 		saveErrorMessage = nil
 		finishedRecording = nil
-		reminders = nil
 		if startsImmediately { start(calendarEvent: nil) }
 	}
 
@@ -82,9 +80,6 @@ final class RecordingSession {
 		lastCheckpointSecond = 0
 		let generation = UUID()
 		self.generation = generation
-		let reminders = LiveReminders(event: calendarEvent, calendar: store.calendarSync.events)
-		self.reminders = reminders
-		reminders.start()
 		if isVisualDemo {
 			let date = now()
 			activityCaptureID = generation
@@ -113,14 +108,9 @@ final class RecordingSession {
 		stopActivity(elapsed: duration)
 		UIApplication.shared.isIdleTimerDisabled = false
 		await releaseCapturePriority()
-		reminders?.setCapturing(false)
 		do {
 			let entryID = try await store.finishRecording(
-				at: recording.url, calendarEvent: calendarEvent, reminders: reminders?.handOff() ?? [])
-			reminders?.finish { [store] found in
-				Task { await store.updateDraftReminders(for: entryID) { $0 += found } }
-			}
-			reminders = nil
+				at: recording.url, calendarEvent: calendarEvent)
 			activeURL = nil
 			finishedRecording = nil
 			context = nil
@@ -141,7 +131,6 @@ final class RecordingSession {
 		startupTask = nil
 		if finishedRecording == nil { finishedRecording = recorder.finish() }
 		if recorder.state == .starting { _ = recorder.cancel() }
-		reminders?.setCapturing(false)
 		stopActivity(elapsed: duration)
 		UIApplication.shared.isIdleTimerDisabled = false
 		await releaseCapturePriority()
@@ -150,8 +139,6 @@ final class RecordingSession {
 				try await store.cancelRecording(at: url)
 			}
 			store.cancelRecordingLocationCapture()
-			reminders?.cancel()
-			reminders = nil
 			finishedRecording = nil
 			activeURL = nil
 			context = nil
@@ -213,7 +200,6 @@ final class RecordingSession {
 	}
 
 	private func recordingStateChanged() {
-		reminders?.setCapturing(recorder.state == .recording)
 		if let status = activityStatus {
 			if activityState?.status != status { refreshActivity() }
 		} else if recorder.state != .starting {

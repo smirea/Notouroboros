@@ -19,7 +19,7 @@ Notouroboros is an iPhone voice memo app that records, transcribes, organizes, a
 - Long-form, on-device transcription with live partial results
 - Audio playback with waveform scrubbing
 - Foundation Models guided titles, summaries for longer recordings, and weekly reviews with explicit incomplete or unavailable outcomes
-- Live on-device reminder extraction while recording, saved to ProcrastiMate with a per-memo outbox (see [ProcrastiMate tasks](docs/procrastimate-tasks.md))
+- Shows a memo's existing ProcrastiMate tasks and keeps or deletes them with the memo (see [ProcrastiMate tasks](docs/procrastimate-tasks.md))
 - Model provenance stored with generated content
 - Read-only calendar sync with per-calendar inclusion
 - Optional calendar-event attachment before recording

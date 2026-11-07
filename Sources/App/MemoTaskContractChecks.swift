@@ -7,134 +7,18 @@ enum MemoTaskContractChecks {
 	static func runFromLaunchArguments() async {
 		guard ProcessInfo.processInfo.arguments.contains("-memo-task-contract-tests") else { return }
 		do {
-			try groundingChecks()
-			try promptChecks()
-			try await extractionChecks()
-			try eventChecks()
 			try wireChecks()
 			try await repositoryChecks()
 			try await outboxChecks()
 			try deletionAndLinkChecks()
 			try presentationChecks()
-			print("MEMO TASK CONTRACT: exact evidence and spoken times, event context, passage coverage, TaskEvent resolution, wire JSON, reminder drafts, delivery states, outbox, delete prompt, and memo links passed")
+			print("MEMO TASK CONTRACT: wire JSON, retired drafts, delivery states, outbox, delete prompt, and memo links passed")
 			fflush(stdout)
 		} catch { fatalError("MEMO TASK CONTRACT: \(error)") }
 	}
 
 	nonisolated private static let transcript = "The run felt good. Next time I should bring electrolytes. Remember to call Maya tomorrow at 3pm about the dentist."
 	nonisolated private static let now = Date(timeIntervalSince1970: 1_800_000_000)
-
-	private static func groundingChecks() throws {
-		let drafts = [
-			TaskDraft(title: "bring electrolytes.", why: "You faded early.", evidence: " “Next time I should bring electrolytes.” ",
-				when: "none", link: .every, timing: .before),
-			TaskDraft(title: "Call Maya about the dentist", why: "", evidence: "call Maya tomorrow at 3pm about the dentist",
-				when: "Tomorrow at 3PM", link: .none, timing: .during),
-			TaskDraft(title: "Buy a telescope", why: "You want one.", evidence: "I should buy a telescope.", when: ""),
-			TaskDraft(title: "Bring electrolytes", why: "Duplicate.", evidence: "Next time I should bring electrolytes.", when: ""),
-			TaskDraft(title: "Stretch", why: "Paraphrased.", evidence: "next time i should bring electrolytes", when: ""),
-			TaskDraft(title: "  ", why: "Empty.", evidence: "The run felt good.", when: ""),
-			TaskDraft(title: "Call Maya at noon", why: "Invented time.", evidence: "Remember to call Maya", when: "at noon"),
-			TaskDraft(title: "I need to", why: "Nothing to do.", evidence: "The run felt good.", when: ""),
-			TaskDraft(title: "Water the plants", why: "Invented around a real quote.", evidence: "The run felt good.", when: ""),
-			TaskDraft(title: "I should remember to call Maya", why: "Self-talk.", evidence: "Remember to call Maya tomorrow", when: ""),
-		]
-		let valid = TaskEngine.validate(drafts, transcript: transcript, hasEvent: true)
-		try expect(valid == [
-			.init(title: "Bring electrolytes", notes: "You faded early.\n\n“Next time I should bring electrolytes.”", when: nil,
-				link: .every, timing: .before),
-			.init(title: "Call Maya about the dentist", notes: "“call Maya tomorrow at 3pm about the dentist”",
-				when: "tomorrow at 3pm", link: .none, timing: .during),
-			.init(title: "Call Maya at noon", notes: "Invented time.\n\n“Remember to call Maya”", when: nil, link: .none, timing: .before),
-			.init(title: "Call Maya", notes: "Self-talk.\n\n“Remember to call Maya tomorrow”", when: nil, link: .none, timing: .before),
-		], "Only exact transcript evidence survives, each title once, and a time phrase only as the transcript's own words: \(valid)")
-		let unlinked = TaskEngine.validate([drafts[0]], transcript: transcript, hasEvent: false)
-		try expect(unlinked.map(\.link) == [.none], "Without an attached event no task links to one")
-		try expect(TaskEngine.spokenTime("NEXT TIME", in: transcript) == "Next time" && TaskEngine.spokenTime("n/a", in: transcript) == nil,
-			"A spoken time is copied from the transcript, ignoring case")
-	}
-
-	private static func promptChecks() throws {
-		let event = calendarEvent("standup", start: now.addingTimeInterval(-600), recurring: true)
-		let during = TaskEngine.prompt(passage: transcript, event: event, recordedAt: now)
-		try expect(during.contains("Attached calendar event: Team standup,") && during.contains(", repeating.")
-			&& during.contains("The memo was recorded while it was happening.") && during.contains("Memo:\n\(transcript)\nEnd of memo."),
-			"The model sees the attached event, its timing, and the whole memo")
-		let before = TaskEngine.prompt(passage: transcript, event: event, recordedAt: now.addingTimeInterval(-3_600))
-		try expect(before.contains("recorded before it started"), "A memo recorded before the event says so")
-		let none = TaskEngine.prompt(passage: transcript, event: nil, recordedAt: now, part: (2, 3))
-		try expect(none.contains("Attached calendar event: none.") && none.contains("part 2 of 3"), "A memo without an event says none")
-		try expect(TaskEngine.instructions.contains("Being recorded during the event is never a reason to link"),
-			"The instructions forbid linking only because the memo was recorded during the event")
-	}
-
-	private static func extractionChecks() async throws {
-		let event = calendarEvent("run", start: now.addingTimeInterval(-3_600), recurring: true)
-		let next = calendarEvent("run", start: now.addingTimeInterval(7 * 86_400), recurring: true)
-		let probe = PromptProbe()
-		let drafts = [TaskDraft(title: "Bring electrolytes", why: "You faded.", evidence: "Next time I should bring electrolytes.",
-			when: "", link: .next, timing: .before)]
-		let result = await TaskEngine.extract(transcript: transcript, event: event, recordedAt: now, calendar: [event, next], now: now,
-			modelIsAvailable: { true }, services: services(probe, context: 20_000, drafts: drafts))
-		try expect(result.outcome == .complete && result.modelName == TaskEngine.modelName && result.tasks.count == 1
-			&& result.tasks[0].event?.occurrences.map(\.start) == [next.startDate.epochMilliseconds],
-			"A linked task resolves to the next occurrence after the recording")
-		let fitting = await probe.prompts
-		try expect(fitting.count == 1, "A fitting memo is one request")
-
-		let unavailable = await TaskEngine.extract(transcript: transcript, event: nil, recordedAt: now, calendar: [],
-			modelIsAvailable: { false }, services: services(probe, context: 20_000, drafts: drafts))
-		try expect(unavailable.outcome == .unavailable && unavailable.tasks.isEmpty, "An unavailable model fails the stage instead of finding nothing")
-		let silent = await TaskEngine.extract(transcript: " \n", event: nil, recordedAt: now, calendar: [],
-			modelIsAvailable: { true }, services: services(probe, context: 20_000, drafts: drafts))
-		try expect(silent.outcome == .skipped, "Silence skips extraction")
-
-		let sentences = (0..<60).map { "Sentence \($0) says I should file report \($0)." }
-		let long = sentences.joined(separator: " ")
-		let longProbe = PromptProbe()
-		let everyDraft = sentences.map { TaskDraft(title: "File report", why: "", evidence: $0, when: "") }
-		let chunked = await TaskEngine.extract(transcript: long, event: nil, recordedAt: now, calendar: [],
-			modelIsAvailable: { true }, services: services(longProbe, context: 1_200, drafts: everyDraft))
-		let prompts = await longProbe.prompts
-		try expect(chunked.outcome == .complete && prompts.count > 1 && sentences.allSatisfy { sentence in prompts.contains { $0.contains(sentence) } },
-			"A long memo is covered by ordered passages, every sentence reaching the model")
-		try expect(chunked.tasks.count == 1, "The same task from several passages is kept once")
-	}
-
-	private static func eventChecks() throws {
-		let calendarID = "work"
-		func occurrence(_ day: Int, rid: Bool = false) -> JournalCalendarEvent {
-			var event = calendarEvent("gym", start: now.addingTimeInterval(Double(day) * 86_400), recurring: true)
-			event.calendarIdentifier = calendarID
-			event.id = "gym-\(day)"
-			if rid { event.externalIdentifier = "gym-series/RID=\(day)" }
-			event.occurrenceDate = event.startDate.addingTimeInterval(rid ? -1_800 : 0)
-			return event
-		}
-		let attached = occurrence(0)
-		let calendar = (1...80).map { occurrence($0, rid: $0 == 2) } + [occurrence(-7)]
-		try expect(TaskEventResolver.seriesID(occurrence(2, rid: true)) == "gym-series", "A detached occurrence's /RID= suffix is dropped")
-		let every = TaskEventResolver.resolve(.every, attached: attached, events: calendar, recordedAt: now, now: now)
-		try expect(every?.series == true && every?.id == "gym-series" && every?.occurrences.count == 10
-			&& every?.occurrences.first?.start == attached.startDate.epochMilliseconds
-			&& every?.occurrences[2].original == occurrence(2, rid: true).occurrenceDate!.epochMilliseconds
-			&& every?.edge == .before && every?.minutes == 60 && every?.title == "Team gym",
-			"Every occurrence lists up to 10 upcoming ones, soonest first, with original dates, an hour before")
-		let sparse = TaskEventResolver.resolve(.every, edge: .after, attached: attached, events: [occurrence(30), occurrence(70)],
-			recordedAt: now, now: now)
-		try expect(sparse?.occurrences.map(\.start) == [attached.startDate, occurrence(30).startDate].map(\.epochMilliseconds)
-			&& sparse?.minutes == 0 && sparse?.edge == .after, "The series window is 60 days and only before carries a lead")
-		let next = TaskEventResolver.resolve(.next, attached: attached, events: calendar, recordedAt: now.addingTimeInterval(60), now: now)
-		try expect(next?.series == false && next?.occurrences.map(\.start) == [occurrence(1).startDate.epochMilliseconds],
-			"Next is the first occurrence after the recording")
-		let alone = TaskEventResolver.resolve(.every, attached: attached, events: [], recordedAt: now.addingTimeInterval(-60), now: now)
-		try expect(alone?.series == true && alone?.occurrences.count == 1, "A repeating event follows its series even when only one occurrence is cached")
-		var oneOff = attached
-		oneOff.isRecurring = false
-		let single = TaskEventResolver.resolve(.every, attached: oneOff, events: [], recordedAt: now.addingTimeInterval(-60), now: now)
-		try expect(single?.series == false && single?.occurrences.count == 1, "A one-off event stands alone")
-		try expect(TaskEventResolver.resolve(.none, attached: attached, events: calendar, recordedAt: now, now: now) == nil, "None links nothing")
-	}
 
 	private static func wireChecks() throws {
 		let memo = UUID(uuidString: "6F1C2B3A-0000-4000-8000-00000000ABCD")!
@@ -165,29 +49,21 @@ enum MemoTaskContractChecks {
 		let root = try temporaryRoot()
 		defer { try? FileManager.default.removeItem(at: root) }
 		let entry = try seed(root)
+		let first = [task("Bring water"), task("Call Maya")]
+		try await stored(first, delivery: #"{"draft":{}}"#, for: entry.id, root: root)
+		let retired = JournalRepository(rootURL: root)
+		let load = try await retired.load()
+		let drafted = await retired.record(id: entry.id)
+		let unsent = await retired.taskDeliveryJobs(repair: true)
+		try expect(load.issues.isEmpty && drafted?.taskDelivery == .notExtracted && drafted?.entry?.tasks.isEmpty == true
+			&& drafted?.entry?.taskModel == nil && unsent.isEmpty,
+			"A note with retired reminder drafts loads without tasks and sends nothing")
+
+		try await stored(first, delivery: #"{"pending":{}}"#, for: entry.id, root: root)
 		let repository = JournalRepository(rootURL: root)
 		_ = try await repository.load()
-		let first = [task("Bring water"), task("Call Maya")]
-		_ = try await repository.updateDraftReminders(id: entry.id) { $0 = first }
-		let drafted = await repository.record(id: entry.id)
-		let unsent = await repository.taskDeliveryJobs(repair: true)
-		try expect(drafted?.taskDelivery == .draft && unsent.isEmpty, "Reminder drafts are never sent before Save Reminders")
-		_ = try await repository.updateDraftReminders(id: entry.id) { $0[0].title = "Bring a water bottle"; $0.removeLast() }
-		let edited = await repository.record(id: entry.id)
-		try expect(edited?.entry?.tasks.map(\.title) == ["Bring a water bottle"] && edited?.taskDelivery == .draft,
-			"Drafts can be renamed and removed")
-		_ = try await repository.updateDraftReminders(id: entry.id) { $0.removeAll() }
-		let cleared = try await repository.saveReminders(id: entry.id)
-		let emptied = await repository.record(id: entry.id)
-		try expect(cleared == nil && emptied?.taskDelivery == .notExtracted, "Removing every draft leaves nothing to save")
-
-		_ = try await repository.updateDraftReminders(id: entry.id) { $0 = first }
-		let saved = try await repository.saveReminders(id: entry.id)
-		try expect(saved?.taskDelivery == .pending(retry: nil), "Save Reminders queues the drafts for ProcrastiMate")
 		let job = try only(await repository.taskDeliveryJobs(now: now))
-		try expect(job.tasks == first && job.id == entry.id && job.recordedAt == entry.createdAt, "The outbox sends the memo's reminders")
-		let locked = try await repository.updateDraftReminders(id: entry.id) { $0.removeAll() }
-		try expect(locked == nil, "Saved reminders are no longer drafts")
+		try expect(job.tasks == first && job.id == entry.id && job.recordedAt == entry.createdAt, "The outbox sends the memo's saved tasks")
 
 		let failed = try await repository.failTasks(job, message: "Offline", now: now)
 		guard case let .pending(retry)? = failed?.taskDelivery, retry?.attempts == 1, retry?.retryAfter == now.addingTimeInterval(5) else {
@@ -225,6 +101,7 @@ enum MemoTaskContractChecks {
 		defer { try? FileManager.default.removeItem(at: root) }
 		let entry = try seed(root)
 		let tasks = [task("Bring water"), task("Call Maya")]
+		try await stored(tasks, delivery: #"{"pending":{}}"#, for: entry.id, root: root)
 		let link = LinkProbe()
 		let services = ProcessingServices(transcribe: { _, _, _, _ in TranscriptionResult(transcript: transcript, modelName: "Fixture") },
 			reflect: { _, _ in ReflectionResult(headline: "Fixture", modelName: "Fixture") })
@@ -233,10 +110,7 @@ enum MemoTaskContractChecks {
 		await store.waitForConfigurationWritesForContract()
 
 		link.status = .unavailable(.notInstalled)
-		await store.updateDraftReminders(for: entry.id) { $0 = tasks }
-		await store.waitForTaskDeliveryForContract()
-		try expect(store.taskDeliveries[entry.id] == .draft && link.puts.isEmpty, "Drafts wait for Save Reminders")
-		await store.saveReminders(for: entry.id)
+		store.resumeStaleProcessing()
 		try await wait { store.taskDeliveries[entry.id] == .blocked(.notInstalled) }
 		try expect(link.puts.isEmpty, "Nothing is sent while ProcrastiMate is missing")
 
@@ -321,27 +195,6 @@ enum MemoTaskContractChecks {
 		MemoTask(key: UUID(), title: title, notes: "Why", when: nil, event: nil)
 	}
 
-	private static func calendarEvent(_ name: String, start: Date, recurring: Bool) -> JournalCalendarEvent {
-		JournalCalendarEvent(id: name, externalIdentifier: "\(name)-series", calendarIdentifier: "work", calendarTitle: "Work",
-			title: "Team \(name)", startDate: start, endDate: start.addingTimeInterval(1_800), isAllDay: false,
-			isRecurring: recurring, occurrenceDate: start)
-	}
-
-	private static func services(_ probe: PromptProbe, context: Int, drafts: [TaskDraft]) -> TaskModelServices {
-		TaskModelServices(budget: { _, _, _ in
-			try ModelContextBudget(contextSize: context, instructionTokens: 0, schemaTokens: 0, outputTokens: 0, safetyTokens: 0,
-				count: { $0.utf8.count })
-		}, extract: { _, prompt in
-			await probe.record(prompt)
-			return drafts.filter { prompt.contains($0.evidence) }
-		})
-	}
-
-	private actor PromptProbe {
-		var prompts: [String] = []
-		func record(_ prompt: String) { prompts.append(prompt) }
-	}
-
 	@MainActor
 	private final class LinkProbe {
 		var status = ProcrastiMateLinkStatus.unavailable(.notInstalled)
@@ -362,7 +215,20 @@ enum MemoTaskContractChecks {
 		}
 	}
 
-	private static func seed(_ root: URL, append: Bool = false) throws -> JournalEntry {
+	/// Writes tasks and a raw delivery state into the memo's manifest, as an older build left them.
+	private static func stored(_ tasks: [MemoTask], delivery: String, for id: UUID, root: URL) async throws {
+		_ = try await JournalRepository(rootURL: root).load()
+		let url = root.appendingPathComponent("Records/\(id.uuidString).json")
+		var record = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+		var entry = record["entry"] as! [String: Any]
+		entry["tasks"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(tasks))
+		entry["taskModel"] = "Fixture"
+		record["entry"] = entry
+		record["taskDelivery"] = try JSONSerialization.jsonObject(with: Data(delivery.utf8))
+		try JSONSerialization.data(withJSONObject: record).write(to: url)
+	}
+
+	private static func seed(_ root: URL) throws -> JournalEntry {
 		let entry = JournalEntry(createdAt: now, duration: 1, transcript: transcript, headline: "Fixture memo", audioFilename: "\(UUID().uuidString).m4a")
 		let file = try AVAudioFile(forWriting: root.appendingPathComponent("Recordings/\(entry.audioFilename!)"), settings: RecordingAudioFormat.captureSettings)
 		let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 4_410)!
@@ -370,11 +236,7 @@ enum MemoTaskContractChecks {
 		for index in 0..<4_410 { buffer.floatChannelData![0][index] = 0 }
 		try file.write(from: buffer)
 		file.close()
-		let url = root.appendingPathComponent("entries.json")
-		var entries = append ? try JSONDecoder().decode([JournalEntry].self, from: Data(contentsOf: url)) : []
-		entries.append(entry)
-		try JSONEncoder().encode(entries).write(to: url)
-		if append { try? FileManager.default.removeItem(at: root.appendingPathComponent("records-migration-v1.complete")) }
+		try JSONEncoder().encode([entry]).write(to: root.appendingPathComponent("entries.json"))
 		return entry
 	}
 

@@ -33,7 +33,6 @@ All rows below include `-demo`. Use native UI interactions when available to ver
 | State | Additional launch flags |
 | --- | --- |
 | Note or recording | `-demo-entry` or `-demo-recording` |
-| Reminders found while recording | `-demo-recording -live-transcript "First phrase\|Second phrase" -seed-task-drafts '[{"title":"…"}]'`; each draft appears once a phrase grounds it |
 | Note tasks, delivered | `-demo-tasks` |
 | Note tasks waiting | `-demo-tasks -demo-tasks-state` plus `pending`, `retry`, `not-installed`, or `signed-out` |
 | Delete confirmation with tasks | `-demo-tasks -demo-delete-prompt` |
@@ -48,18 +47,16 @@ All rows below include `-demo`. Use native UI interactions when available to ver
 
 The weekly chart uses saved durations grouped by recording date; it is independent of transcript length or model output.
 
-## ProcrastiMate delivery without a microphone
+## Seeded memos without a microphone
 
-Debug builds can create a memo from text and send its tasks to a real or stub ProcrastiMate server. Launch without `-demo`:
+Debug builds can create a memo from text to run title and summary analysis. Launch without `-demo`:
 
 ```sh
 xcrun simctl launch --console <SIMULATOR_UUID> com.stefan.notouroboros \
-  -seed-memo "Next week before the standup I should bring the release slides. Call the plumber tomorrow at 3pm." \
-  -seed-event-title "Standup" \
-  -procrastimate-link '{"apiURL":"http://127.0.0.1:6120","token":"<bearer token>"}'
+  -seed-memo "Next week before the standup I should bring the release slides." -seed-event-title "Standup"
 ```
 
-The app prints `SEEDED_MEMO <lowercase id>`, runs the on-device task model to create reminder drafts, and runs title analysis. Tap **Save Reminders** on the note to send them. `-seed-event-title` attaches the next cached calendar event with that title, or a synthetic event shaped by `-seed-event-start <ISO 8601>`, `-seed-event-minutes`, and `-seed-event-recurring`. Where the on-device model cannot generate, as in the iOS 26.5 Simulator, add `-seed-task-drafts '[{"title":"Bring the release slides","link":"next"},{"title":"Call the plumber","when":"tomorrow at 3pm"}]'`; the drafts replace only the model call and still pass grounding and event resolution. `-procrastimate-link` stands in for the shared keychain item and an installed app; `not-installed` or `signed-out` simulate the blocked states. Without it, a signed build reads the real keychain item ProcrastiMate writes. Open a seeded note with `xcrun simctl openurl <SIMULATOR_UUID> "notouroboros://entry?id=<id>"`.
+The app prints `SEEDED_MEMO <lowercase id>`. `-seed-event-title` attaches the next cached calendar event with that title, or a synthetic event shaped by `-seed-event-start <ISO 8601>`, `-seed-event-minutes`, and `-seed-event-recurring`. Open a seeded note with `xcrun simctl openurl <SIMULATOR_UUID> "notouroboros://entry?id=<id>"`. ProcrastiMate delivery is covered by the memo task contract suite; `-procrastimate-link` stands in for the shared keychain item there and in Debug launches.
 
 ## Optional native checks
 

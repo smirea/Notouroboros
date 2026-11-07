@@ -15,7 +15,6 @@ struct EntryView: View {
 	@State private var showsNoteActions = false
 	@State private var sharedEntry: JournalEntryExport?
 	@State private var entryPendingDeletion: JournalEntry?
-	@State private var editingReminder: MemoTask?
 	@Namespace private var noteActionsNamespace
 	private struct AudioLoadKey: Hashable {
 		var url: URL
@@ -129,33 +128,7 @@ struct EntryView: View {
 
 				let taskRows = MemoTasksPresentation.rows(tasks: currentEntry.tasks, delivery: store.taskDeliveries[entry.id],
 					remote: store.remoteTasks[entry.id])
-				if store.taskDeliveries[entry.id] == .draft, !currentEntry.tasks.isEmpty {
-					Text("Reminders")
-						.font(.footnote.weight(.semibold))
-						.foregroundStyle(AppStyle.secondary)
-						.accessibilityAddTraits(.isHeader)
-						.entryListRow(bottom: 2)
-					ForEach(currentEntry.tasks) { task in
-						ReminderDraftRow(task: task) { editingReminder = task } onRemove: {
-							Task { await store.updateDraftReminders(for: entry.id) { $0.removeAll { $0.key == task.key } } }
-						}
-							.listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
-							.listRowBackground(AppStyle.background)
-							.listRowSeparatorTint(Color.white.opacity(0.14))
-					}
-					Button {
-						Task { await store.saveReminders(for: entry.id) }
-					} label: {
-						Text("Save Reminders")
-							.font(.system(size: 16, weight: .semibold))
-							.frame(maxWidth: .infinity)
-							.frame(height: 30)
-					}
-						.buttonStyle(.glassProminent)
-						.tint(AppStyle.accent)
-						.padding(.top, 14)
-						.entryListRow()
-				} else if !taskRows.isEmpty {
+				if !taskRows.isEmpty {
 					Text("Tasks")
 						.font(.footnote.weight(.semibold))
 						.foregroundStyle(AppStyle.secondary)
@@ -263,13 +236,6 @@ struct EntryView: View {
 			playback.stop()
 		}
 		.modifier(MemoDeletionConfirmation(store: store, entry: $entryPendingDeletion) { dismiss() })
-		.modifier(ReminderEditor(editing: $editingReminder) { key, title in
-			Task {
-				await store.updateDraftReminders(for: entry.id) { tasks in
-					if let index = tasks.firstIndex(where: { $0.key == key }) { tasks[index].title = title }
-				}
-			}
-		})
 		.sheet(item: $presentedCalendarEvent) { presentedEvent in
 			CalendarEventDetail(event: presentedEvent.event)
 		}

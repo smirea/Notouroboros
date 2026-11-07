@@ -1,6 +1,6 @@
 import Foundation
 
-/// One action the on-device model found in a memo. ProcrastiMate owns the task once it arrives; `key` names it there
+/// One action from a memo. ProcrastiMate owns the task once it arrives; `key` names it there
 /// forever, so a retry never duplicates it and a task Stefan deleted never comes back.
 struct MemoTask: Codable, Hashable, Identifiable, Sendable {
 	let key: UUID
@@ -33,61 +33,10 @@ struct TaskEvent: Codable, Hashable, Sendable {
 	var occurrences: [Occurrence]
 }
 
-/// How a task hangs off the memo's attached event. Being recorded during the event is not a link.
-enum MemoEventLink: String, Codable, Sendable {
-	case none, next, every
-}
-
-/// Mirrors ProcrastiMate's `CalendarSync.taskEvent`: the series id drops a detached occurrence's `/RID=` suffix, and a
-/// series lists its upcoming occurrences, soonest first, up to 10 within 60 days.
-enum TaskEventResolver {
-	static let window: TimeInterval = 60 * 86_400
-	static let seriesLimit = 10
-	static let defaultLeadMinutes = 60
-
-	static func seriesID(_ event: JournalCalendarEvent) -> String {
-		let id = event.externalIdentifier ?? event.localIdentifier ?? event.id
-		return id.range(of: "/RID=").map { String(id[..<$0.lowerBound]) } ?? id
-	}
-
-	static func occurrence(_ event: JournalCalendarEvent) -> TaskEvent.Occurrence {
-		TaskEvent.Occurrence(start: event.startDate.epochMilliseconds, end: event.endDate.epochMilliseconds,
-			original: (event.occurrenceDate ?? event.startDate).epochMilliseconds)
-	}
-
-	/// `events` is the cached calendar. Without the series in it, the attached occurrence stands alone.
-	static func resolve(_ link: MemoEventLink, edge: TaskEvent.Edge = .before, attached: JournalCalendarEvent,
-		events: [JournalCalendarEvent], recordedAt: Date, now: Date) -> TaskEvent? {
-		let id = seriesID(attached)
-		var seen = Set<String>()
-		let siblings = (events + [attached])
-			.filter { $0.calendarIdentifier == attached.calendarIdentifier && seriesID($0) == id }
-			.sorted { $0.startDate < $1.startDate }
-			.filter { seen.insert($0.focusKey).inserted }
-		let next = siblings.first { $0.startDate > recordedAt } ?? attached
-		let occurrences: [JournalCalendarEvent]
-		switch link {
-		case .none:
-			return nil
-		case .next:
-			occurrences = [next]
-		case .every:
-			let upcoming = siblings.filter { $0.endDate > now && $0.startDate < now.addingTimeInterval(window) }
-			occurrences = upcoming.count > 1 ? Array(upcoming.prefix(seriesLimit)) : [next]
-		}
-		// A repeating event follows its series even when the cache lists one occurrence; ProcrastiMate fills in the rest.
-		let series = link == .every && (occurrences.count > 1 || attached.isRecurring)
-		return TaskEvent(id: id, title: attached.title, allDay: attached.isAllDay, series: series, edge: edge,
-			minutes: edge == .before ? defaultLeadMinutes : 0, occurrences: occurrences.map(occurrence))
-	}
-}
-
 /// The memo's outbox state. Device-local: it is not part of the exported note.
 enum MemoTaskDelivery: Codable, Equatable, Sendable {
-	/// No reminders were found while recording, or every draft was removed.
+	/// The memo has no tasks for ProcrastiMate.
 	case notExtracted
-	/// Reminders found while recording, editable until Save Reminders queues them for ProcrastiMate.
-	case draft
 	/// Extracted tasks wait for a `PUT`. `retry` follows the iCloud backoff after a transient failure.
 	case pending(retry: CloudRetryState?)
 	/// Extracted tasks wait for ProcrastiMate to be installed or signed in.
@@ -98,7 +47,7 @@ enum MemoTaskDelivery: Codable, Equatable, Sendable {
 	var awaitsDelivery: Bool {
 		switch self {
 		case .pending, .blocked: true
-		case .notExtracted, .draft, .delivered: false
+		case .notExtracted, .delivered: false
 		}
 	}
 
